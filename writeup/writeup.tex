@@ -12,13 +12,13 @@
 
 \begin{document}
 
-\title{Pandemic Trend Analysis Using SIRD Models}
+\title{ESE 2180 Project 2 Writeup}
 
-\author{\IEEEauthorblockN{Preston Meek}
+\author{\IEEEauthorblockN{Chris Brusie}
 \IEEEauthorblockA{\textit{Deptartment of Electrical Engineering} \\
 \textit{Washington University in St. Louis}\\
 St. Louis, United States \\
-meek@wustl.edu}
+brusie@wustl.edu}
 \and
 \IEEEauthorblockN{Sebastian Theiler}
 \IEEEauthorblockA{\textit{Deptartment of Electrical Engineering} \\
@@ -26,34 +26,19 @@ meek@wustl.edu}
 St. Louis, United States \\
 s.k.theiler@wustl.edu}
 \and
-\IEEEauthorblockN{Mitchell Smith}
-\IEEEauthorblockA{\textit{Deptartment of Electrical Engineering} \\
-\textit{Washington University in St. Louis}\\
-St. Louis, United States \\
-mitchell.m.smith@wustl.edu}
 }
 
 \maketitle
 
-\begin{abstract}
-  The goal of this project was to take sample pandemic data and determine certain characteristics of the population, including when vaccines were rolled out and the fraction of the population vaccinated over time. This was done through the use of SIRD models, which are defined as dynamical systems with four state variables: susceptible, infected, recovered, and deceased. The first step in this project was to create two SIRD models to simulate COVID-19 pandemic data in St. Louis. The first model represented the Delta variant, and the second represented the Omicron variant. Tuning of these models was done both manually and through optimization functions, but ultimately the two methods produced very similar results. From there, a 'what if?' analysis was performed during the Omicron variant, i.e., a theoretical mask mandate was implemented through the SIRD model. The number of cases was reduced by over 40\% and the number of deaths was reduced by approximately 25\%. Finally, the SIRD model was augmented with (V)accination and (B)reakthrough rates, which was used in a three-phase model to approximate cases and deaths from mock data. Vaccination and breakthrough rate information was then extracted from this model to predict vaccine rollout.
-
-\end{abstract}
 
 \section{Introduction}
-Over one-hundred years ago, the Spanish flu infected a third of the world's population and created a wave of fatalities \cite{spanishflu}. While there have been plenty remarkable advancements in technology and medicine since then, COVID-19 still presented itself as the leading cause of millions of deaths in the United States—and this all occurred not even five years ago \cite{b1}. Pandemics continue to be a threat to society at large. There is a clear need for more robust analysis models in order to take the proper preventative measures to prevent the spread of future pandemics.
-
-By creating complex models that match the trends of a pandemic, highly accurate predictions can be made in terms of expected case counts, fatalities, and more. Furthermore, the models can be adjusted to illustrate what certain preventative measures would accomplish. For example, through the use of mathematical justifications, vaccination rates can be added as a state to the model in order to show the impact they would have in reducing the spread of a given disease.
-
-This project enables the use of SIRD models for real-world application. Dynamical systems are a combination of matrix and vector operations, foundational elements of linear algebra. They serve as an introduction to using mathematical models to represent changing populations. Additionally, optimization functions are an integral part of higher-order mathematics and their use in this project provides exposure to advanced linear algebra topics.
+Handwritten digit recognition is a fundamental problem in the field of computer vision and pattern recognition. The goal of this project was to classify images of hand-written digits, specifically determining if an image represents 0 or one of the digits 1-9. This was done through the use of least squares, a method of approximating solutions to overdetermined systems of equations. An exact solution to the system does not exist in our case, but an approximation can be made by taking advantage of projections and orthogonality. Then, we selected features to use for classification by identifying pixels that were active in at least 600 images. Our matrix was constructed from these feature vectors for each image and used with their corresponding labels to compute a learned set of features. This learned feature set was used to classify images, which resulted in relatively high accuracy, given the small training set. 
 
 \section{Methods}
-The methodology of this project can be broken down into three parts: modeling COVID-19 variants, applying the theoretical mask policy, and modeling mock data to approximate vaccine rollout.
+The methodology of this project can be broken into four main parts: identifying image features and constructing the matrices used for least squares, implementing the least squares classifier, classifying a training set of images using our learned features, and analyzing the effects of changing the feature vectors. 
 
-\subsection{Modeling COVID-19 Variants}
-The COIVD-19 data provided for St. Louis must be split into the the Delta and Omicron variants. This is done by indexing the data by the date ranges of these variants, i.e., 6/30/21 through 10/26/21 for the Delta variant and 10/27/21 through 3/22/22 for the Omicron variant.
-
-Separate SIRD models were constructed for each variant. The first step in constructing these SIRD models is to create an SIRD matrix in the following format:
+\subsection{Identifying Image Features}
+The first step of the project was to identify features of our training data set to be used in the classification problem. 
 
 \begin{equation}
 A = \begin{Bmatrix}
