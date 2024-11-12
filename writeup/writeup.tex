@@ -40,287 +40,63 @@ The methodology of this project can be broken into four main parts: identifying 
 \subsection{Identifying Image Features}
 The first step of the project was to identify features of our training data set to be used in the classification problem. 
 
-\begin{equation}
-A = \begin{Bmatrix}
-  S \rightarrow S & I \rightarrow S & R \rightarrow S & D \rightarrow S \\
-  S \rightarrow I & I \rightarrow I & R \rightarrow I & D \rightarrow I \\ 
-  S \rightarrow R & I \rightarrow R & R \rightarrow R & D \rightarrow R \\
-  S \rightarrow D & I \rightarrow D & R \rightarrow D & D \rightarrow D \\
-\end{Bmatrix}
-\end{equation}
+\subsection{Feature Transformation}
+A feature transformation was implemented using a random matrix $R \in \mathbb{R}^{M \times M_0}$ with entries in $\{-1,1\}$ with equal probability, where $M_0$ was the original number of detected features (329) and $M$ describes the number of transformed features. The new feature vector for image $i$ was computed as:
 
-where $X \rightarrow Y$ represents the transition from state $X$ to state $Y$. State S represents the proportion of the population susceptible to the disease, state I represents the proportion infected, state R represents the proportion recovered, and state D represents the proportion deceased. Since these state values are population proportions, the sum of each column must equal $1$, i.e.,
+$$z_i = \max\{Rx_i, 0\}$$
 
-\begin{equation}
-\sum_{i=1}^{n} a_{ic} = 1 \mbox{ for } c \in [1, n].
-\end{equation}
+where $x_i$ is the original feature vector and the max operation is applied elementwise.
 
-The dynamical system can then be modeled as the following:
+In code, this was performed as
+\begin{verbatim}
+def LS_classifier_artificial_features(
+    M,
+    R,
+    x_train,
+    y_train,
+    pixels_to_consider,
+    num_imgs
+):
+    x_train = np.array(x_train)
+    x_data_flat = x_train.reshape(num_imgs, -1)
+    X = x_data_flat[:, pixels_to_consider]
+    A = np.maximum(R @ X.T, 0).T
 
-\begin{equation}
-x(t) = Ax(t - 1).
-\end{equation}
+    y = np.zeros((num_imgs, 10))
+    for i, label in enumerate(y_train):
+        y[i, label] = 1
+    
+    theta = np.zeros((M, 10))
+    for digit in range(10):
+        result = lsqr(A, y[:, digit])
+        theta[:, digit] = result[0]
 
-The first approach taken to tuning these matrices was the manual approach. A few basic assumptions (along with the columns representing complete proportions of the population) were considered during the tuning process in order to simplify the possible matrices:
-\begin{enumerate}
-  \item The susceptible state only changes to susceptible or infected, i.e., the first column of the matrix is in the format $(1 - \lambda, \lambda, 0, 0)^T$, where $\lambda$ is the proportion of the susceptible population that becomes infected.
-  \item There is no transition from the infected state to the susceptible state, i.e., $a_{12} = 0$.
-  \item The recovered state only changes to recovered or susceptible, i.e., the third column of the matrix is in the format $(\omega, 0, 1 - \omega, 0)^T$, where $\omega$ is the proportion of the recovered population that becomes susceptible.
-  \item The deceased state had no changes, i.e., the fourth column of the matrix is equal to $(0, 0, 0, 1)^T$.
-\end{enumerate}
+    return theta
 
-With these assumptions, manual tuning becomes straightforward, as the matrix must be in the following form:
+\end{verbatim}
 
-\begin{equation}
-A = \begin{Bmatrix}
-  1 - \lambda & 0 & \omega      & 0 \\
-  \lambda     & I & 0           & 0 \\
-  0           & R & 1 - \omega  & 0 \\
-  0           & M & 0           & 1 \\
-\end{Bmatrix}
-\end{equation}
+This transformation offers several advantages. First, the transformation allows us to explicitly control the feature space dimension through $M$. The mapping from $\mathbb{R}^{M_0}$ to $\mathbb{R}^M$ can either compress ($M < M_0$) or expand ($M > M_0$) the feature space. A compressed feature space may allow for faster computation, whereas an expanded feature space may allow the classifier to more easily find a separating hyperplane to classify digits. Additionally, the $\max{\cdot,0}$ operation introduces non-linearity into our otherwise linear classifier, which may allow the model to capture more complex decision boundaries.
 
-where $\lambda$ is the proportion of the susceptible population that becomes infected, $I$ is the proportion that remains infected, $R$ is the rate of recovery, $M$ is the rate of mortality, and $\omega$ is the proportion of the recovered population that becomes susceptible. While optimization-based tuning methods were attempted, they didn't result in significantly better data. Additionally, the manually-tuned matrices were much simpler (since the optimized matrix did \textit{not} follow the previously provided structure), which was an important factor since further analysis was going to be conducted on these models. Therefore, the manually-tuned matrices were ultimately used for the SIRD models.
+\subsection{Experimentation with Feature Transformation}
 
-Ultimately, these were the matrices that produced the best results:
-
-\begin{equation}
-D = \begin{Bmatrix}
-0.998 & 0 & 0.03 & 0 \\
-0.002 & 0.99985 & 0 & 0 \\
-0 & 0 & 0.97 & 0 \\
-0 & 0.00015 & 0 & 1
-\end{Bmatrix}
-\end{equation}
-
-\begin{equation}
-O = \begin{Bmatrix}
-0.9821 & 0 & 0 & 0 \\
-0.0179 & 0.95 & 0 & 0 \\
-0 & 0.0498 & 1 & 0 \\
-0 & 0.0002 & 0 & 1
-\end{Bmatrix}
-\end{equation}
-
-where D is the matrix for the Delta variant and O is the matrix for the Omicron variant. Additionally, starting vectors, i.e., $x(0)$, needed to be selected for each variant. These were selected based on the COVID data for each variant:
-\begin{enumerate}
-  \item The initial proportion of infections is set to the first data point for infections.
-  \item The inital proportion of deaths is set to the first data point for deaths.
-  \item The initial proportion of recovered is set to $0$.
-  \item The initial proportion of susceptible is the remaining proportion, i.e., $x(0)_1 = 1 - \sum_{i=2}^{4}x(0)_{i}$.
-\end{enumerate}
-
-This resulted in the following formula for the starting vectors:
-
-\begin{equation}
-x(0) = \begin{Bmatrix}
-1 - I_o - D_o \\
-I_o \\
-0 \\
-D_o
-\end{Bmatrix}
-\end{equation}
-
-where $I_o$ and $D_o$ are the initial infections and deaths respectively for each variant.
-
-For this project, \textit{cumulative} COVID-19 data was provided for cases and deaths rather than the change in these values. Since SIRD models are based on state \textit{changes}, cumulative output had to be manually calculated. Once the simulation was run, the following formulas were used to compute the cumulative cases:
-\begin{equation}
-  newCases(t) = max\{x(t) - x(t - 1), 0\} \\
-\end{equation}
-\begin{equation}
-  cumulativeCases(t) = cumsum(newCases(t))
-\end{equation}
-
-where $cumsum(A)$ is the MATLAB function that computes the cumulative sum of a matrix \cite{cumsum}. From there, the cumulative model was graphically compared to the actual cumulative data until desired results were achieved.
+Various values of $M$ were selected for experimentation: $M \in \{20, 50, 1000, 5000, 10000\}$, and error rate was calculated and recorded for each value of $M$ using the previously developed \texttt{test\_theta\_performance} function. This function was augmented to also accept $R$ as an input, which is then left-multiplied by $A^T$ before making predictions. The classifier was trained only on the first $2,000$ images of the MNIST dataset, as the increasing computational complexity of higher $M$ values made it infeasible to use a larger portion of the dataset. The relationship between $M$ and classification error followed an approximately exponential decay pattern as shown in Figure~\ref{fig:feature_transformation_error_rate}, where $M=20$ increased error rate to above 50\% while $M = 10,000$ decreased error rate to below 10\%, which is approximately half the original error rate of TODO\%. Increasing $M$ further may result in lower error rates; however, this comes at the cost of greatly increased computation time for diminishing improvements in quality.
 
 \begin{figure}[htbp]
-  \centerline{\includegraphics[scale=0.275]{simulationcode.png}}
-  \caption{MATLAB simulation code for Delta and Omicron COVID variants.}
-  \label{fig:sim_code_delta_om}
+  \centerline{\includegraphics[scale=0.4]{figures/feature_transformation_error_rate.png}}
+  \caption{Error Rate vs. Number of Artificial Features ($M$)}
+  \label{fig:feature_transformation_error_rate}
 \end{figure}  
-
-\begin{figure}[htbp]
-  \centerline{\includegraphics[scale=0.475]{../Figures/delta_cases.png}}
-  \caption{SIRD model cases versus actual cases for the Delta COVID variant.}
-  \label{fig:sird_model_inf_delta}
-\end{figure}  
-
-\begin{figure}[htbp]
-  \centerline{\includegraphics[scale=0.475]{../Figures/delta_deaths.png}}
-  \caption{SIRD model deaths versus actual deaths for the Delta COVID variant.}
-  \label{fig:sird_model_det_delta}
-\end{figure}  
-
-\begin{figure}[htbp]
-  \centerline{\includegraphics[scale=0.475]{../Figures/omicron_cases.png}}
-  \caption{SIRD model cases versus actual cases for the Omicron COVID variant.}
-  \label{fig:sird_model_inf_om}
-\end{figure}  
-
-\begin{figure}[htbp]
-  \centerline{\includegraphics[scale=0.475]{../Figures/omicron_deaths.png}}
-  \caption{SIRD model deaths versus actual cases for the Omicron COVID variant.}
-  \label{fig:sird_model_det_om}
-\end{figure}  
-
-%(TODO: include figures of optimization methods somewhere here)
-%(TODO: include error comparison print statement?)
-
-\subsection{Applying the Theoretical Mask Policy}
-In order to apply a policy that will impact pandemic data, it must be translated into mathematical terminology. Research shows that during COVID-19, masks were able to reduce transmissions by upwards of 70\%. Additionally, deaths due to COVID were reduced by over 80\%. These statistics were adopted into the following changes to our model:
-\begin{enumerate}
-\item The proportion of the susceptible population that becomes infected was reduced by 70\%, i.e., $\lambda' = 0.30 * \lambda$. The term that represents the proportion that remains susceptible was adjusted accordingly, i.e., $a_{11} = 1 - \lambda'$.
-\item The starting number of cases are deaths were reduced by 25\%. Based on the research, this is an extremely conservative estimate for the impact masks would have. However, since these are the starting values, it is logical to choose something more conservative. The new starting vector is defined as the following:
-\end{enumerate}
-\begin{equation}
-x'(0) = \begin{Bmatrix}
-1 - 0.75 * (I_o + D_o) \\
-0.75 * I_o \\
-0 \\
-0.75 * D_o
-\end{Bmatrix}
-\end{equation}
-
-The efficacy of this policy was determined by taking the average percent reduction for each data point. This average was calculated for both cases and for deaths. This average was computed using the following formula:
-
-\begin{equation}
-  \text{reduction avg} = \frac{1}{n} * \sum_{i = 1}^{n} \frac{x(i) - x'(i)}{x(i)}
-\end{equation}
-
-The results can be seen in Figure~\ref{fig:policy_results}.
-
-\begin{figure}[htbp]
-\centerline{\includegraphics[scale=0.3]{reduction.png}}
-\caption{Reduction averages for cases and deaths of the Omicron variant after implementing the theoretical mask policy.}
-\label{fig:policy_results}
-\end{figure}
-
-\section{Modeling Vaccinated Population and Breakthrough Rate}
-In this section, the four-component SIRD model is augmented with the additional transition possibilities of (V)accinated and (B)reakthrough (vaccinated and infected). Transition matrices are calibrated to minimize discrepancies between simulated and observed data. From this, estimated rates of vaccination and breakthrough infection rates are calculated through the use of a grid search-based optimization framework to identify the most accurate timing for vaccine rollout. Three distinct phases—pre-vaccine, during vaccine rollout, and post-vaccine—are used to better model the spread of disease. The approach of using multiple $A$ matrices for modeling the data was inspired by the success at using distinct models for the Omicron and Delta variants as described above.
-
-\subsection{Mathematical Model of Transition Probabilities}
-The spread of disease is modeled as a discrete-time linear system using a state-space representation where each health state's transitions are determined by a transition matrix, $\mathbf{A} \in \mathbb{R}^{6 \times 6}$. Each element $A_{i,j}$ represents the probability of transitioning from state $j$ to state $i$ over one time step. The states are defined as follows:
-
-\begin{itemize}
-    \item $S$: Susceptible
-    \item $I$: Infected
-    \item $R$: Recovered
-    \item $D$: Dead
-    \item $V$: Vaccinated
-    \item $B$: Breakthrough (vaccinated but infected)
-\end{itemize}
-
-The model evolves according to:
-\begin{equation}
-    \mathbf{x}(k+1) = \mathbf{A} \mathbf{x}(k),
-\end{equation}
-where $\mathbf{x}(k)$ is the state vector at time step $k$. The initial condition assumes the population begins in the susceptible state:
-\begin{equation}
-    \mathbf{x_0} = \begin{bmatrix} 1 & 0 & 0 & 0 & 0 & 0 \end{bmatrix}^T.
-\end{equation}
-
-Three distinct $\mathbf{A}$ matrices are used, $\mathbf{A}_{\text{pre-vaccine}}$, $\mathbf{A}_{\text{vaccine}}$, and $\mathbf{A}_{\text{post-vaccine}}$, representing the stages before, during, and after vaccination rollout, respectively. The matrices are applied to the phases $[1, t_{\text{vac,start}} - 1]$, $[t_{\text{vac,start}}, t_{\text{vac,end}} - 1]$, and $[t_{\text{vac,end}}, 400]$, where $t_{\text{vac,start}}$ and $t_{\text{vac,end}}$ represent the start and end of vaccination rollout.
-
-\subsection{Optimization Objective}
-The objective is to minimize the discrepancy between observed and simulated infection and mortality data by optimizing the transition matrix $\mathbf{A}$. The cost function $J(\mathbf{A})$ aggregates the sum of squared errors between simulated and observed data for infections and deaths:
-\begin{equation}
-    J(\mathbf{A}) = \sum_{k=1}^T \left( (I_{\text{sim}}(k) - I_{\text{obs}}(k))^2 + (D_{\text{sim}}(k) - D_{\text{obs}}(k))^2 \right),
-\end{equation}
-where $I_{\text{sim}}$ and $D_{\text{sim}}$ represent simulated infections and deaths, and $I_{\text{obs}}$ and $D_{\text{obs}}$ are observed values at each time step $k$.
-
-$\mathbf{A}_{\text{pre-vaccine}}$, $\mathbf{A}_{\text{vaccine}}$, and $\mathbf{A}_{\text{post-vaccine}}$ are optimized independently for their respective phases.
-
-\subsection{Optimization Algorithm}
-The transition matrix $\mathbf{A}$ is optimized through an iterative adjustment process. In each iteration, each element $A_{i,j}$ of $\mathbf{A}$ is perturbed by a small random increment:
-\begin{equation}
-    A_{i,j} \leftarrow A_{i,j} + \frac{\text{rand}}{100},
-\end{equation}
-where $\text{rand} \in [0, 1]$ is a random value. After each adjustment, the columns of $\mathbf{A}$ are normalized to ensure probabilities sum to 1:
-\begin{equation}
-    A_{:,j} = \frac{A_{:,j}}{\sum_{i=1}^6 A_{i,j}}.
-\end{equation}
-
-Alternative optimization methods, such as \texttt{fmincon} were evaluated; however, despite their apparent advantage, these methods produced matrices that were less fit to the data than the random perturbation optimization algorithm that was developed. For this reason, random perturbation was selected to optimize the matrices for their phases.
-
-\subsection{Grid Search for Optimal Vaccine Rollout}
-The optimal timing of vaccination rollout is explored by a grid search over potential start and end times, denoted by $t_{\text{vac,start}}$ and $t_{\text{vac,end}}$. For each combination, optimization is performed separately for the three phases (pre-vaccine, during vaccine rollout, post-vaccine), calculating the total cost as the sum of costs across all phases:
-\begin{equation}
-    (t_{\text{vac,start}}^*, t_{\text{vac,end}}^*) = \arg\min_{t_{\text{vac,start}}, t_{\text{vac,end}}} J_{\text{total}},
-\end{equation}
-where $J_{\text{total}}$ is the cumulative cost over all phases.
-
-The search was initially performed over $t_{\text{vac,start}} \in [70, 120], \; t_{\text{vac,start}} \mod 5 = 0$ and $t_{\text{vac,end}} \in [160, 200], \; t_{\text{vac,end}} \mod 5 = 0$ with each step being optimized to 200 iterations of random perturbations. This produced the heatmap of costs shown in Figure~\ref{fig:cost_heatmap}. From this, further optimization was performed by increasing the perturbation iterations to 500 and searching over $t_{\text{vac,start}} \in [104, 108], \; t_{\text{vac,start}} \mod 2 = 0$ and $t_{\text{vac,end}} \in [160, 174], \; t_{\text{vac,end}} \mod 2 = 0$. This resulted in the final optimal values of $t_{\text{vac,start}} = 108$ and $t_{\text{vac,end}} = 168$.
-
-\begin{figure}[htbp]
-\centerline{\includegraphics[scale=0.3]{cost_heatmap.png}}
-\caption{Heatmap of cost values during optimization grid search.}
-\label{fig:cost_heatmap}
-\end{figure}
-
-\subsection{Simulation and Results}
-Using the optimized parameters, the system dynamics is simulated across the three phases. The model captures disease progression as follows:
-
-\begin{align}
-    \mathbf{y}_{\text{pre-vaccine}} &= \mathbf{C}_{\text{pre-vaccine}} \mathbf{x}(t), \quad t < t_{\text{vac,start}}, \\
-    \mathbf{y}_{\text{vaccine}} &= \mathbf{C}_{\text{vaccine}} \mathbf{x}(t), \quad t_{\text{vac,start}} \leq t < t_{\text{vac,end}}, \\
-    \mathbf{y}_{\text{post-vaccine}} &= \mathbf{C}_{\text{post-vaccine}} \mathbf{x}(t), \quad t \geq t_{\text{vac,end}}.
-\end{align}
-
-The time-series data for infections and deaths generated by the model are compared against observed data, as shown in Figure~\ref{simulation_results}. The total number of vaccinated individuals and breakthrough cases over time are calculated as follows:
-\begin{equation}
-    V(t) = \sum_{k=0}^t V_k, \quad B(t) = \sum_{k=0}^t B_k.
-\end{equation}
-
-\begin{figure}[htbp]
-\centerline{\includegraphics[scale=0.3]{simulation_results.png}}
-\caption{Infections and deaths compared against actual data. Predicted vaccination and breakthrough rates.}
-\label{fig:simulation_results}
-\end{figure}
-
-\subsection{Fitting a Sigmoid Curve to the Vaccination Data}
-
-To model the vaccination process over time more accurately, we fit a sigmoid function to the observed vaccination data. The sigmoid function is commonly used to model growth processes as it is defined by a characteristic S-shaped curve, which is appropriate for the increasing adoption of vaccination over time.
-
-The function used for fitting is of the form:
-\[
-    f(x) = \frac{L}{1 + e^{-k(x - x_0)}}
-\]
-where:
-\begin{itemize}
-  \item \(L\) represents the maximum value the vaccination rate can achieve,
-  \item \(k\) is the steepness of the curve, indicating how quickly the vaccination rate increases,
-  \item \(x_0\) is the inflection point, which marks the time when half of the population is vaccinated.
-\end{itemize}
-
-The fitting procedure starts by defining initial guesses for the parameters: \(L\) is set to the maximum value of the derived vaccination rate, \(k\) is initially chosen as 0.5, and \(x_0\) is set as the mean of the time indices. To ensure the steepness parameter \(k\) remains in a well-suited range, a lower bound is imposed for \(k\), with a minimum value of 0.1. The fitting process is performed using the \texttt{fit} function in MATLAB, which minimizes the difference between the observed vaccination data and the sigmoid curve.
-
-The fit is shown in Figure~\ref{fig:sigmoid_fit}, where the blue circles represent the observed vaccination data and the red line represents the fitted sigmoid curve. The parameters \(L\), \(k\), and \(x_0\) obtained from the fit are then used to re-derive the vaccination rate over time.
-
-\begin{figure}[htbp]
-\centerline{\includegraphics[scale=0.3]{sigmoid_fit.png}}
-\caption{Sigmoid curve fit to predicted vaccination rates.}
-\label{fig:sigmoid_fit}
-\end{figure}
-
-The fitted vaccination rate is then used to update the \texttt{vaxpop} variable, ensuring a smooth and realistic representation of the vaccination process. This process contributes to the overall simulation of the disease dynamics by accurately modeling the temporal evolution of the vaccination campaign.
 
 \section{Results and Discussion}
+The least-squares classifier can achieve reasonable performance on the MNIST dataset, particularly when using a sufficient number of training examples. Furthermore, multiple classifiers can be used to classify the dataset into individual digits---not just into 0 and non-zero digits while still maintaining a reasonable accuracy of TODO\%. This multi-class capability is noteworthy given the relative simplicity of the least-squares approach. The visualization of the learned parameters $\theta$ through heatmaps revealed interesting patterns for each digit classifier. These heatmaps effectively serve as "prototype" digits, where positive values (shown in warmer colors) indicate pixels that strongly contribute to identifying a particular digit, while negative values (cooler colors) represent pixels that suggest the absence of that digit. For instance, the classifier for digit "0" showed strong positive weights in a circular pattern, while the classifier for "1" emphasized a vertical pattern.
 
-\subsection{Theoretical Mask Policy Efficacy}
-The proposed mask policy would be effective in reducing the number of cases and deaths caused by the Omicron variant of COVID-19. Deaths were reduced by a little over 25\%, and cases were reduced by over 40\%. Additionally, this is a very reasonable policy to implement: KN95 masks can be purchased for less than \$0.20 per unit by consumers \cite{walmart}. Especially when purchased in bulk, governments can easily provide masks for the general public. Therefore, the societal costs of implementing a face mask policy are significantly less than the benefits: far fewer infections with little cost and minimal change in societal operations.
+When reducing the training set size to just 100 images, we observed a significant degradation in performance, with the error rate increasing to approximately TODO\%. This deterioration can be attributed to the model not being exposed to an adequately broad range of training data and can therefore it cannot properly generalize to the variety of digits that appear in the MNIST training dataset. The least-squares classifier therefore has insufficient data to estimate the $\theta$ parameters reliably and is more susceptible to outliers in the dataset. In general, providing the model with more data will increase performance as it prevents the model from overfitting to a handful of images, creating a more robust model.
 
-\subsection{Vaccination Predictive Model Analysis and Quality}
-The vaccination predictive model, using a fitted sigmoid function to approximate vaccination uptake over time, provides a generally realistic approach to forecasting the impact of vaccination efforts on COVID-19 case numbers. By modeling the vaccination timeline with a sigmoid function, the model captures the natural saturation point of vaccination adoption, the initial growth period, and the inflection point where vaccination rates begin to stabilize. However, as the model was only trained to minimize cost in predicting cases and deaths over the three phases, it exhibits some strange behavior, such as initially predicting a strange leap or even decrease in the vaccination rate, which is not possible. The sigmoid curve, however, is largely effective at smoothing out this undesired behavior, improving the robustness of the model. Overall, while the model provides a useful predictive tool for analyzing vaccination trends, its predictions should be treated as rough approximations.
-
-\subsection{Limitations}
-As the progression of COVID-19 was an immensely complex phenomenon, there are a few reasons why it is best to interpret our models and findings with caution. To start, the curated SIRD models for each respective wave are close to the actual data but not a perfect match. There are slight variations in the actual progression of COVID-19 that are not reflected in the SIRD models. Therefore, the models should only be used to gain a strong approximation of COVID-19 parameters, not a precise calculation. Secondly, while the masking policy simulation does produce rates consistent with existing research, the social viability of such a policy may vary widely geographically. Compliance with such a policy might be easy in a city like St. Louis, but there are certain regions in the US where this assumption cannot be extended.
+The transformation of the original features $x_i$ new features via $\max \{Rx_i, 0\}$ is interesting because $R$ allows us to explicitly control the feature dimension through $M$. This provides a systematic way to study the effect of the model's capacity on its performance. Aditionally, the combination of random projections with the max operation creates nonlinear features that measure the degree to which the input aligns with a random pattern (defined by a row of $R$), then zeros out negative alignments. This introduces a form of nonlinearity similar to modern neural networks' ReLU activations, allowing the classifier to capture more complex patterns than purely linear features would permit. However, there is a trade-off between model complexity and performance suggests that while increasing feature dimensionality generally improves accuracy, there exists an optimal point beyond which additional features provide minimal benefit.
 
 \section{Conclusion}
-In this case study we were able to approximate the different characteristics of the Delta and Omicron variants of COVID-19. This was accomplished through manually fitting two SIRD models to a set of existing data on COVID-19 case and death rate for St. Louis City and County. The full list of these characteristics is detailed in equations 5 and 6. Noticeably, the susceptible to infection rate from the Omicron wave appeared to be much higher than the Delta wave. 
 
-Additionally, we simulated what the effect of a masking policy would be on these characteristics. This was done by taking existing data on the effectiveness of mask wearing and preventing COVID-19 transmission and tuning a new model to reflect the implementation of such a policy. It was found that this reduced new COVID-19 cases by 40\% and deaths by 25\%, assuming all those susceptible complied with the policy. 
-
-Lastly, we looked at a different dataset that showed COVID-19 infections and deaths over a 400-day period where vaccines were implemented at an unknown date. From this data, we were able to determine the approximate date at which vaccines were rolled out, the approximate proportion of vaccinated individuals, and the approximate proportion of breakthrough infections. To do this, transition matrices from our previous SIRD models were calibrated to minimize discrepancies between simulated and observed data. This involved using a grid search-based optimization framework to determine when the vaccination rollout period began. From there, estimated vaccination and breakthrough rates and timing were calculated by simulating the model, and the vaccination rate data was smoothed through fitting a sigmoid curve.
+This study demonstrates that least-squares classification for handwritten digit recognition can be effective despite the simplicity of the technique, achieving accuracy of TODO\%. It was found that training data volume significantly impacts model performance, with larger datasets leading to more robust classifiers. Reducing the training dataset to only 100 images resulted in a reduction in accuracy to TODO\%. Additionally, an important result was that random feature projection provides a powerful tool for controlling model complexity. Higher values of $M$ significantly increased the accuracy of the classifier, with $M = 5,000$ leading to a TODO\% accuracy; however, this came at the cost of significantly increased computational complexity, making it infeasible to train this expanded classifier on the full dataset, which, as previously discussed, has adverse effects on accuracy. Future work, such as exploring structured random projections or investigating how different nonlinearities after projection may allow least-squares to achieve even higher accuracy on MNIST digit classification.
 
 \begin{thebibliography}{00}
 
